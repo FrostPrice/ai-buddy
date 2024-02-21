@@ -13,4 +13,4 @@ Rust implementation of an AI using the OpenAI (Should be ClosedAI) API.
 - There are 2 ways that this can be achieved:
 
   - Using `cargo build` and `cargo run` in sequence
-  - **(Recomended)** using `cargo watch` to enable live reload of the APP and on development testing. Run the following: `cargo watch -q -c -x "run -q` for just the live-reload.
+  - **(Recomended)** using `cargo watch` to enable live reload of the APP and on development testing. Run the following: `cargo watch -q -c -x "run -q" for just the live-reload.
