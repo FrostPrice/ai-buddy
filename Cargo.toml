@@ -31,3 +31,4 @@ derive_more = { version = "1.0.0-beta", features = [
     "display",
     "deref",
 ] }
+dotenv = "0.15.0"
