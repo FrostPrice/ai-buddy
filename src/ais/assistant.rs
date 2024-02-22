@@ -1,17 +1,25 @@
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    time::Duration,
+};
 
 use async_openai::types::{
-    AssistantObject, AssistantToolsRetrieval, CreateAssistantRequest, CreateRunRequest,
-    CreateThreadRequest, ModifyAssistantRequest, RunStatus, ThreadObject,
+    AssistantObject, AssistantToolsRetrieval, CreateAssistantFileRequest, CreateAssistantRequest,
+    CreateFileRequest, CreateRunRequest, CreateThreadRequest, ModifyAssistantRequest, RunStatus,
+    ThreadObject,
 };
 use console::Term;
 use derive_more::{Deref, Display, From};
-use serde::{Deserialize, Serialize};
+use serde::{de::IntoDeserializer, Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::{
     ais::msg::{get_text_content, user_msg},
-    utils::cli::{icon_check, icon_deleted_ok},
+    utils::{
+        cli::{icon_check, icon_deleted_ok, icon_err, icon_uploaded, icon_uploading},
+        files::XFile,
+    },
     Result,
 };
 
@@ -220,4 +228,130 @@ async fn get_first_thread_msg_content(
     let text = get_text_content(msg)?;
 
     Ok(text)
+}
+
+// Files
+// * Return the File Id by File Name Hashmap
+async fn get_files_hashmap(
+    openai_client: &OpenAIClient,
+    assistant_id: &AssistantId,
+) -> Result<HashMap<String, FileId>> {
+    // Get all Assistant Files (Files do NOT have .name)
+    let openai_assistants = openai_client.assistants();
+    let openai_assistant_files = openai_assistants.files(assistant_id);
+    let assistant_files = openai_assistant_files.list(DEFAULT_QUERY).await?.data;
+    let assistant_file_ids: HashSet<String> = assistant_files
+        .into_iter()
+        .map(|file_obj| file_obj.id)
+        .collect();
+
+    // Get all Files for Organization (Those files have .filename)
+    let openai_files = openai_client.files();
+    // let organization_files = openai_files.list([("purpose", "assistants")]).await?.data; // For async-openai version 0.18
+    let organization_files = openai_files.list().await?.data;
+
+    // Build or file_name::file_id Hashmap
+    let file_id_by_name: HashMap<String, FileId> = organization_files
+        .into_iter()
+        .filter(|org_file| assistant_file_ids.contains(&org_file.id))
+        .map(|org_file| (org_file.filename, org_file.id.into()))
+        .collect();
+
+    Ok(file_id_by_name)
+}
+
+// * Upload a file to an Assistant (Uploads first to the account, later then attaches to the Assistant)
+// - `force` is `false`, will not upload file if already uploaded
+// - `force` is `true`, it will delete the existing file (In the Account and Assistant), and then Upload
+//
+// Return `(FileId, has_been_uploaded)`
+pub async fn upload_file_by_name(
+    openai_client: &OpenAIClient,
+    assistant_id: &AssistantId,
+    file: &Path,
+    force: bool,
+) -> Result<(FileId, bool)> {
+    let file_name = file.x_file_name();
+    let mut file_id_by_name = get_files_hashmap(openai_client, assistant_id).await?;
+
+    let file_id = file_id_by_name.remove(file_name);
+
+    // If not force and file already create, return early
+    if !force {
+        if let Some(file_id) = file_id {
+            return Ok((file_id, false));
+        }
+    }
+
+    // If old file_id exists, delete the file
+    if let Some(file_id) = file_id {
+        // Delete the Organization File
+        let openai_files = openai_client.files();
+        if let Err(err) = openai_files.delete(&file_id).await {
+            println!(
+                "{} Cannot Delete File '{}'\n\tError: {}",
+                icon_err(),
+                file.x_file_name(),
+                err
+            );
+        }
+
+        // Delete the Assistant File Association
+        let openai_assistant = openai_client.assistants();
+        let openai_assistants_files = openai_assistant.files(assistant_id);
+        if let Err(err) = openai_assistants_files.delete(&file_id).await {
+            println!(
+                "{} Cannot Remove Assistant File '{}'\n\tError: {}",
+                icon_err(),
+                file.x_file_name(),
+                err
+            );
+        };
+    }
+
+    // Upload and Attach the File
+    let term = Term::stdout();
+
+    // Print Uploading
+    term.write_line(&format!(
+        "{} Uploading File '{}'",
+        icon_uploading(),
+        file.x_file_name()
+    ))?;
+
+    // Upload File
+    let openai_files = openai_client.files();
+    let openai_file = openai_files
+        .create(CreateFileRequest {
+            file: file.into(),
+            purpose: "assistants".into(),
+        })
+        .await?;
+
+    // Update Print
+    term.clear_last_lines(1)?;
+    term.write_line(&format!(
+        "{} Uploaded File '{}'",
+        icon_uploaded(),
+        file.x_file_name()
+    ))?;
+
+    // Attach File to Assistant
+    let openai_assistants = openai_client.assistants();
+    let openai_assistant_files = openai_assistants.files(assistant_id);
+    let assistant_file_obj = openai_assistant_files
+        .create(CreateAssistantFileRequest {
+            file_id: openai_file.id.clone(),
+        })
+        .await?;
+
+    // Assert Warning
+    if openai_file.id != assistant_file_obj.id {
+        println!(
+            "Critical Error: File Id do not match {} {}",
+            openai_file.id, assistant_file_obj.id
+        )
+    }
+
+    Ok((assistant_file_obj.id.into(), true))
 }

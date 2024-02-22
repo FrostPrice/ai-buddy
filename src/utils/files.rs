@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsStr,
     fs::{self, File},
     io::{BufRead, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
@@ -153,4 +154,21 @@ pub fn read_to_string(file: &Path) -> Result<String> {
     let content = fs::read_to_string(file)?;
 
     Ok(content)
+}
+
+// XFile
+// Trait that has methods which return the `&str` when Ok, and When None or Err, return ""
+pub trait XFile {
+    fn x_file_name(&self) -> &str;
+    fn x_extension(&self) -> &str;
+}
+
+impl XFile for Path {
+    fn x_file_name(&self) -> &str {
+        self.file_name().and_then(OsStr::to_str).unwrap_or("")
+    }
+
+    fn x_extension(&self) -> &str {
+        self.extension().and_then(OsStr::to_str).unwrap_or("")
+    }
 }
