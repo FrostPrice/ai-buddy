@@ -6,10 +6,12 @@ use async_openai::types::{
 };
 use console::Term;
 use derive_more::{Deref, Display, From};
+use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::{
     ais::msg::{get_text_content, user_msg},
+    utils::cli::{icon_check, icon_deleted_ok},
     Result,
 };
 
@@ -20,7 +22,6 @@ use super::OpenAIClient;
 const DEFAULT_QUERY: &[(&str, &str)] = &[("limit", "100")];
 const POLLING_DURATION_MS: u64 = 500;
 
-// TODO: This info could be stored in the .env file.
 pub struct CreateConfig {
     pub name: String,
     pub model: String,
@@ -30,7 +31,7 @@ pub struct CreateConfig {
 #[derive(Debug, Display, From, Deref)]
 pub struct AssistantId(String);
 
-#[derive(Debug, Display, From, Deref)]
+#[derive(Debug, Display, From, Deref, Serialize, Deserialize)]
 pub struct ThreadId(String);
 
 #[derive(Debug, Display, From, Deref)]
@@ -64,18 +65,18 @@ pub async fn load_or_create(
     if let (true, Some(assistant_id_ref)) = (recreate, assistant_id.as_ref()) {
         delete(openai_client, assistant_id_ref).await?;
         assistant_id.take();
-        println!("Assistant {} Deleted", config.name);
+        println!("{} Assistant {} Deleted", icon_deleted_ok(), config.name);
     }
 
     // Load if exists
     if let Some(assistant_id) = assistant_id {
-        println!("Assistant {} Loaded", config.name);
+        println!("{} Assistant {} Loaded", icon_check(), config.name);
         Ok(assistant_id)
     } else {
         // Create if needed
         let assistant_name = config.name.clone();
         let assistant_id = create(openai_client, config).await?;
-        println!("Assistant {} Created", assistant_name);
+        println!("{} Assistant {} Created", icon_check(), assistant_name);
         Ok(assistant_id)
     }
 }
@@ -134,7 +135,10 @@ pub async fn create_thread(openai_client: &OpenAIClient) -> Result<ThreadId> {
     Ok(res.id.into())
 }
 
-async fn get_thread(openai_client: &OpenAIClient, thread_id: &ThreadId) -> Result<ThreadObject> {
+pub async fn get_thread(
+    openai_client: &OpenAIClient,
+    thread_id: &ThreadId,
+) -> Result<ThreadObject> {
     let openai_threads = openai_client.threads();
 
     let thread_object = openai_threads.retrieve(thread_id).await?;
