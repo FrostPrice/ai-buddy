@@ -291,7 +291,7 @@ pub async fn upload_file_by_name(
             println!(
                 "{} Cannot Delete File '{}'\n\tError: {}",
                 icon_err(),
-                file.x_file_name(),
+                file.to_string_lossy(), // Used to_string_lossy to show the Path also
                 err
             );
         }
