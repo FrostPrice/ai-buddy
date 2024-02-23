@@ -3,13 +3,11 @@ mod buddy; // APP code to interface with the AIS
 mod error;
 mod utils;
 
-use ais::new_openai_client;
-use buddy::Buddy;
 use textwrap::wrap;
 
 use crate::{
-    ais::assistant::{self, CreateConfig},
-    utils::cli::{icon_err, icon_res, prompt, text_res},
+    buddy::Buddy,
+    utils::cli::{icon_res, prompt, text_res},
 };
 
 pub use self::error::{Error, Result};
@@ -77,7 +75,21 @@ async fn start() -> Result<()> {
                 let res = wrap(&res, 80).join("\n"); // TODO: The 80 could be in a Constant
                 println!("{} {}", icon_res(), text_res(res));
             }
-            other => println!("{} Command Not Supported {other:?}", icon_err()),
+            Cmd::RefreshAll => {
+                buddy = Buddy::init_from_dir(DEFAULT_DIR, true).await?;
+                conversation = buddy.load_or_create_conversation(true).await?;
+            }
+            Cmd::RefreshConversation => {
+                conversation = buddy.load_or_create_conversation(true).await?;
+            }
+            Cmd::RefreshInstructions => {
+                buddy.upload_instructions().await?;
+                conversation = buddy.load_or_create_conversation(true).await?;
+            }
+            Cmd::RefreshFiles => {
+                buddy.upload_files(true).await?;
+                conversation = buddy.load_or_create_conversation(true).await?;
+            }
         }
     }
 

@@ -11,7 +11,7 @@ use async_openai::types::{
 };
 use console::Term;
 use derive_more::{Deref, Display, From};
-use serde::{de::IntoDeserializer, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::{
@@ -122,8 +122,22 @@ pub async fn upload_instructions(
 
 async fn delete(openai_client: &OpenAIClient, assistant_id: &AssistantId) -> Result<()> {
     let openai_assistants = openai_client.assistants();
+    let openai_files = openai_client.files();
 
-    // TODO: Delete files
+    // Delete the files associated to this Assistant (It will delete the File in the Organization)
+    for file_id in get_files_hashmap(openai_client, assistant_id)
+        .await?
+        .into_values()
+    {
+        let del_res = openai_files.delete(&file_id).await;
+        // ! NOTE: Might already be deleted
+        if del_res.is_ok() {
+            println!("{} File Deleted - '{}'", icon_deleted_ok(), file_id);
+        }
+    }
+
+    // ! NOTE: No need to delete the Files association with the Assistant, since when deleting the Assistant the associations will also be deleted
+
     // Delete Assistant
     openai_assistants.delete(assistant_id).await?;
 

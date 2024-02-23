@@ -7,15 +7,15 @@ pub(super) struct Config {
     pub name: String,
     model: String,
     pub instructions_file: String,
-    file_bundles: Vec<FileBundle>,
+    pub file_bundles: Vec<FileBundle>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(super) struct FileBundle {
-    bundle_name: String,
-    src_dir: String,
-    dst_ext: String,
-    src_globs: Vec<String>,
+    pub bundle_name: String,
+    pub src_dir: String,
+    pub dst_ext: String,
+    pub src_globs: Vec<String>,
 }
 
 // Froms

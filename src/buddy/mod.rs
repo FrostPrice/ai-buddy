@@ -15,7 +15,10 @@ use crate::{
     },
     utils::{
         cli::icon_check,
-        files::{ensure_dir, load_from_json, load_from_toml, read_to_string, save_to_json},
+        files::{
+            bundle_to_file, ensure_dir, list_files, load_from_json, load_from_toml, read_to_string,
+            save_to_json,
+        },
     },
     Result,
 };
@@ -68,7 +71,7 @@ impl Buddy {
         buddy.upload_instructions().await?;
 
         // Upload Files
-        // TODO: upload-Files
+        buddy.upload_files(false).await?;
 
         Ok(buddy)
     }
@@ -90,6 +93,73 @@ impl Buddy {
         } else {
             Ok(false)
         }
+    }
+
+    pub async fn upload_files(&self, recreate: bool) -> Result<u32> {
+        let mut num_uploaded = 0;
+
+        // Get the .buddy/files
+        let data_files_dir = self.data_files_dir()?;
+
+        // Clean the .buddy/files left over by Old Buddy
+        let exclude_element = format!("*{}*", &self.assistant_id);
+        for file in list_files(
+            &data_files_dir,
+            Some(&["*.rs", "*.md"]),
+            Some(&[&exclude_element]),
+        )? {
+            // Delete the file
+            let file_str = file.to_string_lossy();
+            // Safeguard
+            if !file_str.contains(".buddy") {
+                return Err(format!("Error Should Not Delete: '{}'", file_str).into());
+            }
+            fs::remove_file(&file)?;
+        }
+
+        // Generate and Upload the .buddy/files bundle files
+        for bundle in self.config.file_bundles.iter() {
+            let src_dir = self.dir.join(&bundle.src_dir);
+
+            if src_dir.is_dir() {
+                let src_globs: Vec<&str> = bundle.src_globs.iter().map(AsRef::as_ref).collect();
+
+                let files = list_files(&src_dir, Some(&src_globs), None)?;
+
+                if !files.is_empty() {
+                    // Compute the Bundle File Name
+                    let bundle_file_name = format!(
+                        "{}-{}-bundle-{}.{}",
+                        self.name(),
+                        bundle.bundle_name,
+                        self.assistant_id,
+                        bundle.dst_ext
+                    );
+                    let bundle_file = self.data_files_dir()?.join(bundle_file_name);
+
+                    // If it doesn't exists, then force a reupload
+                    let force_reupload = recreate || !bundle_file.exists();
+
+                    // Rebundle no matter if it exists or not
+                    bundle_to_file(files, &bundle_file)?;
+
+                    // Upload
+                    let (_, uploaded) = assistant::upload_file_by_name(
+                        &self.openai_client,
+                        &self.assistant_id,
+                        &bundle_file,
+                        force_reupload,
+                    )
+                    .await?;
+
+                    if uploaded {
+                        num_uploaded += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(num_uploaded)
     }
 
     pub async fn load_or_create_conversation(&self, recreate: bool) -> Result<Conversation> {
